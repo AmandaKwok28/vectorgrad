@@ -33,7 +33,7 @@ conda activate vectorgrad
 
 Clone the repository:
 ```bash
-git clone https://github.com/AmandaKwok28/vectorGrad
+git clone https://github.com/AmandaKwok28/vectorgrad
 cd vectorGrad
 ```
 
