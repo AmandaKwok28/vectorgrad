@@ -1,6 +1,7 @@
 # Reference / vendored code
 micrograd/
 tests/test_scalar.py
+demo/micrograd.ipynb
 
 # Python cache
 __pycache__/
