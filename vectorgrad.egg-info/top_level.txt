@@ -1,0 +1,6 @@
+demo
+docs
+micrograd
+models
+tests
+vectorgrad

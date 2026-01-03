@@ -14,3 +14,6 @@ __pycache__/
 
 # Local notebooks
 .ipynb_checkpoints/
+
+# Python environments
+venv/

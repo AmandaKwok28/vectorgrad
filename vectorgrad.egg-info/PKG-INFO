@@ -1,3 +1,13 @@
+Metadata-Version: 2.4
+Name: vectorgrad
+Version: 0.1.0
+Summary: A vectorized automatic differentiation engine built for learning
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy
+Dynamic: license-file
+
 # VectorGrad
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
@@ -40,7 +50,7 @@ cd vectorGrad
 Install minimal dependencies:
 ```bash
 pip install -r requirements.txt
-pip install -e .
+pip install -e vectorgrad
 ```
 
 ## Usage

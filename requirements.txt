@@ -1,0 +1,10 @@
+numpy
+
+# for testing
+pytest  
+torch 
+
+# running jupyter notebooks
+ipykernel
+scikit-learn
+matplotlib

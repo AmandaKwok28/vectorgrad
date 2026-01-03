@@ -14,7 +14,8 @@ class Module:
 class Linear(Module):
     
     def __init__(self, nin, nout):
-        self.W = Tensor(np.random.randn(nin, nout))
+        std = np.sqrt(2 / (nin + nout))
+        self.W = Tensor(np.random.randn(nin, nout) * std)
         self.b = Tensor(np.zeros(nout))
         
     # forward pass through all the neurons for this input array x
@@ -39,6 +40,17 @@ class ReLU(Module):
     def __repr__(self):
         return "ReLU()"
     
+class Tanh(Module):
+    
+    def __call__(self, x):
+        return x.tanh()
+    
+    def parameters(self):
+        return []
+    
+    def __repr__(self):
+        return "Tanh()"
+    
 
 class MLP(Module):
     
@@ -49,7 +61,7 @@ class MLP(Module):
         for i in range(len(nouts)):
             self.layers.append(Linear(sz[i], sz[i+1]))
             if i < len(nouts) - 1:
-                self.layers.append(ReLU())
+                self.layers.append(Tanh())
         
     def __call__(self, x):
         for layer in self.layers:
