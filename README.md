@@ -45,7 +45,7 @@ pip install -e .
 
 ## Usage
 
-To explore vectorgrad on the MNIST handwritten digits dataset, navigate to the `/demo` directory and run the vectorgrad.ipynb notebook.
+To explore vectorgrad on a toy XOR dataset, navigate to the `/demo` directory and run the vectorgrad.ipynb notebook.
 The notebook walks through basic usage, forward passes, and gradient computation using vectorized tensors.
 
 To import the core `Tensor` class in your own code:
