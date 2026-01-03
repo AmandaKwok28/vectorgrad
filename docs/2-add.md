@@ -63,7 +63,7 @@ unbroadcasted dimensions to properly accumulate gradient contributions.
 
 ---
 
-### Backward Function
+### Backwards Implementation
 
 Representing the above partials in code assuming `x = self` and `y = other`:
 
