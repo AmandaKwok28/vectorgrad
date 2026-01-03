@@ -1,0 +1,13 @@
+# Reference / vendored code
+micrograd/
+tests/test_scalar.py
+
+# Python cache
+__pycache__/
+**/__pycache__/
+
+# Pytest cache
+.pytest_cache/
+
+# Local notebooks
+.ipynb_checkpoints/
