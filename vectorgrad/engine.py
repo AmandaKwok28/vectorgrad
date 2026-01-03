@@ -20,7 +20,7 @@ class Tensor:
         while grad.ndim > len(shape):
             grad = grad.sum(axis=0)
             
-        # sum over broadcasted axes with size = 1 (collapse them back down)
+        # sum over broadcasted axes with size = 1 (collapse them back down) to get contributions to gradient
         for i, s in enumerate(shape):
             if s == 1:
                 grad = grad.sum(axis=i, keepdims=True)
@@ -144,29 +144,163 @@ class Tensor:
         return self.sum(axis=axis, keepdims=keepdims) * (1 / denom)
     
     
+    # def matmul(self, other):
+    #     other = Tensor._ensure_tensor(other)
+    #     out = Tensor(self.data @ other.data, (self, other), '@')
+        
+    #     def _backward():
+    #         self.grad += Tensor._unbroadcast(
+    #             out.grad @ np.swapaxes(other.data, -1, -2),   # reverses last two axes to properly transpose
+    #             self.data.shape
+    #         )
+            
+    #         other.grad += Tensor._unbroadcast(
+    #             np.swapaxes(self.data, -1, -2) @ out.grad,  
+    #             other.data.shape
+    #         )
+        
+    #     out._backward = _backward
+    #     return out
     def matmul(self, other):
         other = Tensor._ensure_tensor(other)
         out = Tensor(self.data @ other.data, (self, other), '@')
+
+        def _backward():
+            # CASE 1: vector @ matrix
+            if self.data.ndim == 1 and other.data.ndim == 2:
+                # dL/dx
+                self.grad += out.grad @ other.data.T
+                # dL/dW
+                other.grad += np.outer(self.data, out.grad)
+
+            # CASE 2: matrix @ matrix (or batched later)
+            else:
+                self.grad += Tensor._unbroadcast(
+                    out.grad @ np.swapaxes(other.data, -1, -2),
+                    self.data.shape
+                )
+                other.grad += Tensor._unbroadcast(
+                    np.swapaxes(self.data, -1, -2) @ out.grad,
+                    other.data.shape
+                )
+
+        out._backward = _backward
+        return out
+
+    
+    def conv2d(self, weight, stride=1):
+        # get shape of kernel and image
+        H, W = self.data.shape
+        kh, kw = weight.data.shape
+        
+        # calculate the output shape
+        out_h = (H - kh) // stride + 1
+        out_w = (W - kw) // stride + 1
+        out = np.zeros((out_h, out_w))
+        
+        # compute the convolution
+        for i in range(out_h):
+            for j in range(out_w):
+                window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]   # get the entire window of values you'll multiply with the kernel
+                tmp = window * weight.data
+                out[i,j] = tmp.sum()
+                
+        out = Tensor(out, (self, weight), 'conv2d')
         
         def _backward():
-            self.grad += Tensor._unbroadcast(
-                out.grad @ np.swapaxes(other.data, -1, -2),   # reverses last two axes to properly transpose
-                self.data.shape
-            )
             
-            other.grad += Tensor._unbroadcast(
-                np.swapaxes(self.data, -1, -2) @ out.grad,  
-                other.data.shape
-            )
+            for i in range(out_h):
+                for j in range(out_w):
+                    g = out.grad[i,j]
+                    window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]
+                    
+                    # calculate the loss gradient w.r.t. to X (self), get all contributions of this value to the output y
+                    self.grad[i*stride:i*stride+kh, j*stride:j*stride+kw] += g * weight.data
+                    
+                    # kernel gradient
+                    weight.grad += g * window
+                    
         
         out._backward = _backward
         return out
+    
+    
+    def avg_pool2d(self, kh, kw, stride=1):
+        if stride is None:
+            stride = kh        # LeNet style default
+        
+        H, W = self.data.shape
+        out_h = (H - kh) // stride + 1
+        out_w = (W - kw) // stride + 1
+        out = np.zeros((out_h, out_w))
+        
+        # forward pass
+        for i in range(out_h):
+            for j in range(out_w):
+                window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]
+                out[i,j] = window.mean()
+                
+        out = Tensor(out, (self,), 'avg_pool2d')
+        
+        def _backward():
+            for i in range(out_h):
+                for j in range(out_w):
+                    g = out.grad[i,j]
+                    self.grad[i*stride:i*stride+kh, j*stride:j*stride+kw] += g / (kh*kw)
+        
+        out._backward = _backward
+        return out  
+    
+    def flatten(self):
+        out = Tensor(self.data.reshape(-1), (self,), 'flatten')
+
+        def _backward():
+            self.grad += out.grad.reshape(self.data.shape)
+
+        out._backward = _backward
+        return out
+    
+    
+    @staticmethod   # come back to this...
+    def concat(tensors):
+        data = np.concatenate([t.data for t in tensors])
+        out = Tensor(data, tuple(tensors), 'concat')
+
+        sizes = [t.data.size for t in tensors]
+
+        def _backward():
+            idx = 0
+            for t, sz in zip(tensors, sizes):
+                t.grad += out.grad[idx:idx+sz].reshape(t.data.shape)
+                idx += sz
+
+        out._backward = _backward
+        return out
+    
+    def softmax(self):
+        # numerical stability
+        exps = (self - self.data.max()).exp()
+        return exps / exps.sum()        
     
     # allow slicing
     def __getitem__(self, idx):
         out = Tensor(self.data[idx], (self,), 'slice')
         def _backward():
             self.grad[idx] += out.grad
+        out._backward = _backward
+        return out
+
+    def exp(self):
+        out = Tensor(np.exp(self.data), (self,), 'exp')
+        def _backward():
+            self.grad += out.grad * out.data
+        out._backward = _backward
+        return out
+
+    def log(self):
+        out = Tensor(np.log(self.data), (self,), 'log')
+        def _backward():
+            self.grad += out.grad / self.data
         out._backward = _backward
         return out
 

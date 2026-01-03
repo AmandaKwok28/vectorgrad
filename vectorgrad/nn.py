@@ -63,115 +63,27 @@ class MLP(Module):
     def __repr__(self):
         return f"MLP of [{', '.join(str(layer) for layer in self.layers)}]"
     
-   
-   
-# these are just theortical... currently doesn't operate in tensor space which is a big problem   
+
+
+# ----------------------------------------------------------------------------------------------
+# LeNet stuff
+# ----------------------------------------------------------------------------------------------
+
 class Conv2d(Module):
     '''
-    INPUTS:
-    - K: kernel size
-    - C_in: number of channels: 1 for grayscale, 3 for rgb
-    - C_out: number of feature maps you want
-
+    Wrapper for the conv2d operation
     '''
-    
-    # kernel = [C_out, C_in, K, K]
-    def __init__(self, C_in, C_out, K):
-        self.W = Tensor(np.random.randn(C_out, C_in, K, K))        # for every number of feature maps C_out, you need [C_in, K, K] kernels, kernels are shared across the image
-        self.b = Tensor(np.zeros(C_out))                    # just this many biases
-        self.Cout = C_out
-        self.K = K
-        
-    # forward pass
-    def __call__(self, x):
-        
-        # get shape of input
-        [batches, C_in, H, W] = x.data.shape
-        
-        # calculate output shape
-        K = self.K
-        C = self.Cout
-        H_out = H - K + 1
-        W_out = W - K + 1
-        out = np.zeros((batches, C, H_out, W_out))
-        
-        # calculate the feature maps
-        for batch in range(batches):
-            for cout in range(C):
-                for i in range(H_out): 
-                    for j in range(W_out):
-                        total = 0
-                        for chan in range(C_in):
-                            tmp = x[batch, chan, i:i+K, j:j+K] * self.W[cout, chan, :, :]    # compute the patch dot product with the weights
-                            tmp = tmp.sum()
-                            total += tmp
-                            
-                        out[batch, cout, i, j] = (total + self.b[cout]).data  # add the bias
-        
-        return out
-                
-    def parameters(self):
-        return [self.W, self.b]
-    
-            
-
-class AvgPool(Module):
-    
-    def __init__(self, K):
-        self.K = K
+    def __init__(self, kh, kw):
+        self.W = Tensor(np.random.randn(kh, kw) * 0.1)
         
     def __call__(self, x):
-        
-        B, C, H, W = x.data.shape
-        K = self.K
-        
-        H_out = H // K
-        W_out = W // K
-        out = np.zeros((B, C, H_out, W_out))   # note: pooling doesn't change the number of channels
-        
-        for b in range(B):
-            for c in range(C):
-                for i in range(H_out):
-                    for j in range(W_out):
-                        h0 = i * K
-                        w0 = j * K
-                        
-                        patch = x[b, c, h0:h0+K, w0:w0+K]
-                        out[b, c, i, j] = patch.mean()
-        
-        return out
+        return x.conv2d(self.W)
     
-    # modern average pooling doesn't need any params
     def parameters(self):
-        return []  
-
+        return [self.W]
         
-class SoftmaxCrossEntropy(Module):
     
-    def __init__(self):
-        pass
     
-    def __call__(self, logits, targets):
-
-        B, C = logits.data.shape
-        
-        # compute numerically stable softmax
-        z = logits.data - np.max(logits.data, axis=1, keepdims=True)
-        exp_z = np.exp(z)
-        probs = exp_z / np.sum(exp_z, axis=1, keepdims=True)
-        
-        # do NLL
-        log_probs = -np.log(probs[np.arange(B), targets])
-        loss = log_probs.mean()
-        
-        return loss
-        
-
-    # no parameters just computes the cross entropy loss
-    def parameters(self):
-        return []
-
-
 class LeNet(Module):
     '''
     Modernized LeNet implementation.
@@ -191,54 +103,60 @@ class LeNet(Module):
     def __init__(self):
         
         # feature extractors
-        self.C1 = Conv2d(1, 6, 5)
-        self.R1 = ReLU()
-        self.S2 = AvgPool(2)
+        self.conv1 = [Conv2d(5, 5) for _ in range(6)]
+        self.conv2 = [
+            [Conv2d(5, 5) for _ in range(6)]   # each output channel has 6 kernels (1 per input channel)
+            for _ in range(16)
+        ]
         
-        self.C3 = Conv2d(6, 16, 5)
-        self.R3 = ReLU()
-        self.S4 = AvgPool(2)
-        
-        # classifiers
-        self.FC5 = Linear(16 * 5 * 5, 120)  # flatten
-        self.R5 = ReLU()
-        
-        self.FC6 = Linear(120, 84)
-        self.R6 = ReLU()
-        
-        self.FC7 = Linear(84, 10)   # 10 digit classes -> logits
+        # classifer
+        self.fc1 = Linear(16*5*5, 120)
+        self.fc2 = Linear(120, 84)
+        self.fc3 = Linear(84, 10)
+    
     
     # forward pass
     def __call__(self, x):
-        # conv block 1
-        x = self.C1(x)
-        x = self.R1(x)
-        x = self.S2(x)
         
-        # conv block 2
-        x = self.C3(x)
-        x = self.R3(x)
-        x = self.S4(x)
+        # C1  + S2
+        x = [conv(x).relu().avg_pool2d(2, 2, 2) for conv in self.conv1]
+        
+        # C3  + S4
+        new_maps = []                                       # holds 16 output feature maps of C3
+        for kernels in self.conv2:                          # one group of 6 conv kernels
+            y = None                                        # accumulate the sum of all 6 convolutions
+            for fm, conv in zip(x, kernels):                # for each feature map, kernel pair
+                out = conv(fm)                              # take the convolution
+                y = out if y is None else y + out           # accumulate the sum 
+            y = y.relu().avg_pool2d(2, 2, 2)                   # S4 : apply average pooling
+            new_maps.append(y)                              # add the new feature map
+        x = new_maps
         
         # flatten
-        B = x.data.shape[0]
-        x = x.reshape(B, -1)
+        x = Tensor.concat([fm.flatten() for fm in x])       # flatten into one long tensor with 400 items
+
+        # classifier (basically an MLP)
+        x = self.fc1(x).relu()
+        x = self.fc2(x).relu()
+        x = self.fc3(x)        
         
-        # classifier
-        x = self.FC5(x)
-        x = self.R5(x)
-        
-        x = self.FC6(x)
-        x = self.R6(x)
-        
-        x = self.FC7(x)   # logits
         return x
     
     def parameters(self):
-        return (
-            self.C1.parameters() +
-            self.C3.parameters() +
-            self.FC5.parameters() +
-            self.FC6.parameters() +
-            self.FC7.parameters()
-        )
+        params = []
+
+        # C1 kernels (6)
+        for conv in self.conv1:
+            params += conv.parameters()
+
+        # C3 kernels (16 × 6)
+        for kernel_group in self.conv2:
+            for conv in kernel_group:
+                params += conv.parameters()
+
+        # fully connected layers
+        params += self.fc1.parameters()
+        params += self.fc2.parameters()
+        params += self.fc3.parameters()
+        
+        return params
