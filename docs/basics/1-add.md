@@ -10,11 +10,14 @@ $z = x + y$
 
 For example:
 
-$x = \begin{bmatrix} 1 \\ 1 \\ 1 \end{bmatrix},
+$$
+x = \begin{bmatrix} 1 \\ 1 \\ 1 \end{bmatrix}$,
 \quad
 y = \begin{bmatrix} 2 \\ 2 \\ 2 \end{bmatrix}
 \Rightarrow
-z = \begin{bmatrix} 3 \\ 3 \\ 3 \end{bmatrix}$
+z = \begin{bmatrix} 3 \\ 3 \\ 3 \end{bmatrix}
+$$
+
 
 
 
@@ -39,13 +42,16 @@ $$
 $$
 
 For elementwise addition, the local partial derivatives satisfy  
+
 $$ 
-    \frac{\partial z_i}{\partial x_i} = 1 
+\frac{\partial z_i}{\partial x_i} = 1 
 $$ 
-and  
+
+and
+
 $$ 
 \frac{\partial z_i}{\partial y_i} = 1 
-$$.
+$$
 
 As a result, the upstream gradient  $\frac{\partial L}{\partial z}$ passes
 through unchanged to both operands. This is why the backward implementation
