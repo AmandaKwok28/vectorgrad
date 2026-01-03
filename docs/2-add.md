@@ -11,7 +11,7 @@ $z = x + y$
 For example:
 
 $$
-x = \begin{bmatrix} 1 \\ 1 \\ 1 \end{bmatrix}$,
+x = \begin{bmatrix} 1 \\ 1 \\ 1 \end{bmatrix},
 \quad
 y = \begin{bmatrix} 2 \\ 2 \\ 2 \end{bmatrix}
 \Rightarrow
