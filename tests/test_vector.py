@@ -1,8 +1,6 @@
+from vectorgrad.engine import Tensor
 import numpy as np
 import torch
-import sys, os
-sys.path.append(os.path.abspath(".."))
-from vectorgrad.engine import Tensor
 
 
 def assert_allclose(a, b, atol=1e-6, rtol=1e-6):

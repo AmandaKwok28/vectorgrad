@@ -1,6 +1,10 @@
 import argparse
 import subprocess
-import sys
+import sys, os
+
+# conda env uses numpy with Intel MKL which spawns a lot of uneccessary threads so I'm setting it to 1
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 def main():
     parser = argparse.ArgumentParser(description="vectorgrad CLI")
