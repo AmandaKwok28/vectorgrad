@@ -2,6 +2,8 @@
 micrograd/
 tests/test_scalar.py
 demo/micrograd.ipynb
+demo/LeNet.ipynb
+models/
 
 # Python cache
 __pycache__/
