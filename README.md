@@ -72,6 +72,6 @@ In the `/docs` folder I’m slowly adding the math behind each operation. It’s
 
 ## Note:
 
-I'm working on the LeNet demo right now. My operations aren't batched for convolution so I need to fix that in order for it not to take hours to process the MNIST digits dataset. Should be out soon though!
+I'm working on the LeNet demo right now. My operations aren't batched for avg_pool2d, flatten, and softmax so I need to fix that in order for it not to take hours to process the MNIST digits dataset. Should be out soon though!
 
 The current MLP demo is fully functional and serves as the primary example for now. It's listed as `vectorgrad.ipynb` in the `/demo` folder

@@ -22,7 +22,7 @@ class Tensor:
             
         # sum over broadcasted axes with size = 1 (collapse them back down) to get contributions to gradient
         for i, s in enumerate(shape):
-            if s == 1:
+            if s == 1 and grad.shape[i] != 1:                # only reduce if it was originally broadcast
                 grad = grad.sum(axis=i, keepdims=True)
                 
         return grad
@@ -153,86 +153,156 @@ class Tensor:
         return self.sum(axis=axis, keepdims=keepdims) * (1 / denom)
     
     
+    # unbatched matmul
     # def matmul(self, other):
     #     other = Tensor._ensure_tensor(other)
     #     out = Tensor(self.data @ other.data, (self, other), '@')
-        
+
     #     def _backward():
-    #         self.grad += Tensor._unbroadcast(
-    #             out.grad @ np.swapaxes(other.data, -1, -2),   # reverses last two axes to properly transpose
-    #             self.data.shape
-    #         )
+    #         # case 1: vector @ vector
+    #         if self.data.ndim == 1 and other.data.ndim == 1:
+    #             self.grad += out.grad * other.data
+    #             other.grad += out.grad * self.data
             
-    #         other.grad += Tensor._unbroadcast(
-    #             np.swapaxes(self.data, -1, -2) @ out.grad,  
-    #             other.data.shape
-    #         )
-        
+    #         # case 2: vector @ matrix
+    #         elif self.data.ndim == 1 and other.data.ndim == 2:
+    #             self.grad += out.grad @ other.data.T       
+    #             other.grad += np.outer(self.data, out.grad)
+
+    #         # case 3: matrix @ vector
+    #         elif self.data.ndim == 2 and other.data.ndim == 1:
+    #             self.grad += np.outer(out.grad, other.data)
+    #             other.grad += self.data.T @ out.grad
+
+    #         # case 4: matrix @ matrix
+    #         else:
+    #             self.grad += out.grad @ other.data.T
+    #             other.grad += self.data.T @ out.grad
+
     #     out._backward = _backward
     #     return out
+    
     def matmul(self, other):
         other = Tensor._ensure_tensor(other)
         out = Tensor(self.data @ other.data, (self, other), '@')
-
+        
+        # function to broadcast a 1D vectors to 2D for matmul
+        # if left: treat as a row vector, else column vector
+        def promote(x, left: bool):
+            if x.ndim == 1:
+                return x[None,:] if left else x[:,None] 
+            return x
+        
         def _backward():
-            # CASE 1: vector @ matrix
-            if self.data.ndim == 1 and other.data.ndim == 2:
-                # dL/dx
-                self.grad += out.grad @ other.data.T
-                # dL/dW
-                other.grad += np.outer(self.data, out.grad)
-
-            # CASE 2: matrix @ matrix (or batched later)
-            else:
-                self.grad += Tensor._unbroadcast(
-                    out.grad @ np.swapaxes(other.data, -1, -2),
-                    self.data.shape
-                )
-                other.grad += Tensor._unbroadcast(
-                    np.swapaxes(self.data, -1, -2) @ out.grad,
-                    other.data.shape
-                )
-
+            X = promote(self.data, left=True)
+            Y = promote(other.data, left=False)
+            dZ = out.grad
+            
+            # recall the dims are output dims x input dims so it's always broadcast on the left
+            if dZ.ndim == 1:
+                dZ = dZ[None, :]
+                
+            dX = Tensor._unbroadcast(dZ @ np.swapaxes(Y, -1, -2), self.data.shape)
+            dY = Tensor._unbroadcast(np.swapaxes(X, -1, -2) @ dZ, other.data.shape)
+            self.grad += dX
+            other.grad += dY
+            
         out._backward = _backward
         return out
 
-    
-    def conv2d(self, weight, stride=1):
-        # get shape of kernel and image
-        H, W = self.data.shape
-        kh, kw = weight.data.shape
+    # intuition: Let Cin = 6, and Cout = 16
+    # 16 kernels sees all 6 maps with random weights and grad descent tells us which 16 resolved kernels are the best    
+    # def conv2d(self, weight, stride=1):
+    #     # get shape of kernel and image
+    #     H, W = self.data.shape
+    #     kh, kw = weight.data.shape
         
-        # calculate the output shape
-        out_h = (H - kh) // stride + 1
-        out_w = (W - kw) // stride + 1
-        out = np.zeros((out_h, out_w))
+    #     # calculate the output shape
+    #     out_h = (H - kh) // stride + 1
+    #     out_w = (W - kw) // stride + 1
+    #     out = np.zeros((out_h, out_w))
         
-        # compute the convolution
-        for i in range(out_h):
-            for j in range(out_w):
-                window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]   # get the entire window of values you'll multiply with the kernel
-                tmp = window * weight.data
-                out[i,j] = tmp.sum()
+    #     # compute the convolution
+    #     for i in range(out_h):
+    #         for j in range(out_w):
+    #             window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]   # get the entire window of values you'll multiply with the kernel
+    #             tmp = window * weight.data
+    #             out[i,j] = tmp.sum()
                 
+    #     out = Tensor(out, (self, weight), 'conv2d')
+        
+    #     def _backward():
+            
+    #         for i in range(out_h):
+    #             for j in range(out_w):
+    #                 g = out.grad[i,j]
+    #                 window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]
+                    
+    #                 # calculate the loss gradient w.r.t. to X (self), get all contributions of this value to the output y
+    #                 self.grad[i*stride:i*stride+kh, j*stride:j*stride+kw] += g * weight.data
+                    
+    #                 # kernel gradient
+    #                 weight.grad += g * window
+                    
+        
+    #     out._backward = _backward
+    #     return out
+    
+    # batched implementation
+    def conv2d(self, weight, stride=1):
+        B, C_in, H, W = self.data.shape
+        C_out, _, kH, kW = weight.data.shape
+
+        out_h = (H - kH) // stride + 1
+        out_w = (W - kW) // stride + 1
+
+        out = np.zeros((B, C_out, out_h, out_w))
+
+        for b in range(B):
+            for oc in range(C_out):
+                for i in range(out_h):
+                    for j in range(out_w):
+                        window = self.data[
+                            b,
+                            :,
+                            i*stride:i*stride+kH,
+                            j*stride:j*stride+kW
+                        ]  # shape: (C_in, kH, kW)
+
+                        out[b, oc, i, j] = np.sum(
+                            window * weight.data[oc]
+                        )
+                        
         out = Tensor(out, (self, weight), 'conv2d')
         
         def _backward():
-            
-            for i in range(out_h):
-                for j in range(out_w):
-                    g = out.grad[i,j]
-                    window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]
-                    
-                    # calculate the loss gradient w.r.t. to X (self), get all contributions of this value to the output y
-                    self.grad[i*stride:i*stride+kh, j*stride:j*stride+kw] += g * weight.data
-                    
-                    # kernel gradient
-                    weight.grad += g * window
-                    
-        
+            for b in range(B):
+                for oc in range(C_out):
+                    for i in range(out_h):
+                        for j in range(out_w):
+                            g = out.grad[b, oc, i, j]
+
+                            window = self.data[
+                                b,
+                                :,
+                                i*stride:i*stride+kH,
+                                j*stride:j*stride+kW
+                            ]
+
+                            # dX: accumulate over output channels
+                            self.grad[
+                                b,
+                                :,
+                                i*stride:i*stride+kH,
+                                j*stride:j*stride+kW
+                            ] += g * weight.data[oc]
+
+                            # dW: accumulate over batch + spatial
+                            weight.grad[oc] += g * window
+                            
         out._backward = _backward
         return out
-    
+
     
     def avg_pool2d(self, kh, kw, stride=1):
         if stride is None:
