@@ -62,7 +62,7 @@ From the root directory of the project, run:
 python -m vectorgrad test
 ```
 
-The above runs all tests in the test folder. Feel free to add tests of your own! I'm still updating them as I learn.
+The above runs all tests in the test folder. I'm still updating them as I learn. Will develop this a lot more once all operations are batched.
 
 
 ## Intuition
