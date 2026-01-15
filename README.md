@@ -67,7 +67,8 @@ The above runs all tests in the test folder. I'm still updating them as I learn.
 
 ## Intuition
 
-In the `/docs` folder I’m slowly adding the math behind each operation. It’s coming along, but typing LaTeX takes me forever — sorry! I’ve found that once you derive the math, most of it is fairly straightforward. The main conceptual hurdles are unbroadcasting and the backward() logic itself; everything else reduces to basic calculus and linear algebra.
+In the `/docs` folder I’m slowly adding some explanations for a few functions that took extra time to implement. For ex: unbroadcast and conv2d + batching were conceptually 
+very consuming. 
 
 
 ## Note:
