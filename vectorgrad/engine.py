@@ -152,36 +152,9 @@ class Tensor:
         
         return self.sum(axis=axis, keepdims=keepdims) * (1 / denom)
     
+
     
-    # unbatched matmul
-    # def matmul(self, other):
-    #     other = Tensor._ensure_tensor(other)
-    #     out = Tensor(self.data @ other.data, (self, other), '@')
-
-    #     def _backward():
-    #         # case 1: vector @ vector
-    #         if self.data.ndim == 1 and other.data.ndim == 1:
-    #             self.grad += out.grad * other.data
-    #             other.grad += out.grad * self.data
-            
-    #         # case 2: vector @ matrix
-    #         elif self.data.ndim == 1 and other.data.ndim == 2:
-    #             self.grad += out.grad @ other.data.T       
-    #             other.grad += np.outer(self.data, out.grad)
-
-    #         # case 3: matrix @ vector
-    #         elif self.data.ndim == 2 and other.data.ndim == 1:
-    #             self.grad += np.outer(out.grad, other.data)
-    #             other.grad += self.data.T @ out.grad
-
-    #         # case 4: matrix @ matrix
-    #         else:
-    #             self.grad += out.grad @ other.data.T
-    #             other.grad += self.data.T @ out.grad
-
-    #     out._backward = _backward
-    #     return out
-    
+    # batched matmul    
     def matmul(self, other):
         other = Tensor._ensure_tensor(other)
         out = Tensor(self.data @ other.data, (self, other), '@')
@@ -209,157 +182,181 @@ class Tensor:
             
         out._backward = _backward
         return out
-
-    # intuition: Let Cin = 6, and Cout = 16
-    # 16 kernels sees all 6 maps with random weights and grad descent tells us which 16 resolved kernels are the best    
-    # def conv2d(self, weight, stride=1):
-    #     # get shape of kernel and image
-    #     H, W = self.data.shape
-    #     kh, kw = weight.data.shape
-        
-    #     # calculate the output shape
-    #     out_h = (H - kh) // stride + 1
-    #     out_w = (W - kw) // stride + 1
-    #     out = np.zeros((out_h, out_w))
-        
-    #     # compute the convolution
-    #     for i in range(out_h):
-    #         for j in range(out_w):
-    #             window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]   # get the entire window of values you'll multiply with the kernel
-    #             tmp = window * weight.data
-    #             out[i,j] = tmp.sum()
-                
-    #     out = Tensor(out, (self, weight), 'conv2d')
-        
-    #     def _backward():
-            
-    #         for i in range(out_h):
-    #             for j in range(out_w):
-    #                 g = out.grad[i,j]
-    #                 window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]
-                    
-    #                 # calculate the loss gradient w.r.t. to X (self), get all contributions of this value to the output y
-    #                 self.grad[i*stride:i*stride+kh, j*stride:j*stride+kw] += g * weight.data
-                    
-    #                 # kernel gradient
-    #                 weight.grad += g * window
-                    
-        
-    #     out._backward = _backward
-    #     return out
     
-    # batched implementation
-    def conv2d(self, weight, stride=1):
-        B, C_in, H, W = self.data.shape
-        C_out, _, kH, kW = weight.data.shape
-
-        out_h = (H - kH) // stride + 1
-        out_w = (W - kW) // stride + 1
-
-        out = np.zeros((B, C_out, out_h, out_w))
-
-        for b in range(B):
-            for oc in range(C_out):
-                for i in range(out_h):
-                    for j in range(out_w):
-                        window = self.data[
-                            b,
-                            :,
-                            i*stride:i*stride+kH,
-                            j*stride:j*stride+kW
-                        ]  # shape: (C_in, kH, kW)
-
-                        out[b, oc, i, j] = np.sum(
-                            window * weight.data[oc]
-                        )
-                        
-        out = Tensor(out, (self, weight), 'conv2d')
+    
+    def conv2d(self, Cout, kernel_size, stride=1):
+        '''
+        Performs batched 2d convolution allowing for several input and output channels
         
-        def _backward():
-            for b in range(B):
-                for oc in range(C_out):
-                    for i in range(out_h):
-                        for j in range(out_w):
-                            g = out.grad[b, oc, i, j]
+        :param self: input image of size - B x Cin x H x W
+        :param Cout: number of output channels desired
+        :param kernel_size: a tuple indicating the width and height of your desired kernel
+        :param stride: value of the stride for your kernel
+        
+        Returns
+        out - output batched images of size B x Cout x Hout x Wout where each batch has size Cout x Hout x Wout
+        '''
+        
+        # init the weights
+        kh, kw = kernel_size
+        s = stride
+        
+        # get the batch dim and set up output dims
+        B, Cin, H, Wim = self.data.shape
+        W = Tensor(np.random.randn(Cout, Cin, kh, kw), (), 'Weight')
+        Hout = (H - kh) // stride + 1
+        Wout = (Wim - kw) // stride + 1
 
-                            window = self.data[
-                                b,
-                                :,
-                                i*stride:i*stride+kH,
-                                j*stride:j*stride+kW
-                            ]
-
-                            # dX: accumulate over output channels
-                            self.grad[
-                                b,
-                                :,
-                                i*stride:i*stride+kH,
-                                j*stride:j*stride+kW
-                            ] += g * weight.data[oc]
-
-                            # dW: accumulate over batch + spatial
-                            weight.grad[oc] += g * window
+        
+        # init output 
+        out_data = np.zeros((B, Cout, Hout, Wout))
                             
+        # computing the forward pass idiomatically   
+        for b in range(B):                                                              # we do this for each "batch of size (Cout, Hout, Wout)"
+            for cout in range(Cout):                                                    # for each output channel positioned at (i,j)
+                for i in range(Hout):
+                    for j in range(Wout):
+                        for cin in range(Cin):                                          # we sum the convolution / cross correlation between X and the corresponding kernel
+                            img_patch = self.data[b, cin, i*s:i*s+kh, j*s:j*s+kw]
+                            out_data[b, cout, i, j] += np.sum(img_patch * W.data[cout, cin])
+        
+        out = Tensor(out_data, (self, W), 'conv2d')
+                            
+        # compute the backwards pass for dL/dX and dL/dW                
+        def _backward():
+            # backwards pass to find dL/dX
+            dX = np.zeros((B, Cin, H, Wim))
+
+            # see the conv2d derivation of the code, but I also added the batching and stride back in
+            for b in range(B):
+                for cout in range(Cout):
+                    for cin in range(Cin):
+                        for iout in range(Hout):
+                            for jout in range(Wout):
+                                dX[b, cin,
+                                iout*s:iout*s+kh,
+                                jout*s:jout*s+kw] += (
+                                    out.grad[b, cout, iout, jout] * W.data[cout, cin]
+                                )
+
+
+                        
+            self.grad += dX
+            
+            dW = np.zeros((Cout, Cin, kh, kw))
+
+            for b in range(B):
+                for cout in range(Cout):
+                    for cin in range(Cin):
+                        for iout in range(Hout):
+                            for jout in range(Wout):
+                                dW[cout, cin] += (
+                                    out.grad[b, cout, iout, jout]
+                                    * self.data[b, cin,
+                                        iout*s : iout*s + kh,
+                                        jout*s : jout*s + kw]
+                                )
+                                
+            W.grad += dW
+
         out._backward = _backward
-        return out
+
+        return out, W
 
     
     def avg_pool2d(self, kh, kw, stride=1):
         if stride is None:
-            stride = kh        # LeNet style default
-        
-        H, W = self.data.shape
+            stride = kh  # LeNet-style default
+
+        B, C, H, W = self.data.shape
         out_h = (H - kh) // stride + 1
         out_w = (W - kw) // stride + 1
-        out = np.zeros((out_h, out_w))
-        
-        # forward pass
-        for i in range(out_h):
-            for j in range(out_w):
-                window = self.data[i*stride:i*stride+kh, j*stride:j*stride+kw]
-                out[i,j] = window.mean()
-                
-        out = Tensor(out, (self,), 'avg_pool2d')
-        
+
+        out_data = np.zeros((B, C, out_h, out_w))
+
+
+        for b in range(B):
+            for c in range(C):
+                for i in range(out_h):
+                    for j in range(out_w):
+                        window = self.data[
+                            b, c,
+                            i*stride : i*stride + kh,
+                            j*stride : j*stride + kw
+                        ]
+                        out_data[b, c, i, j] = window.mean()
+
+        out = Tensor(out_data, (self,), 'avg_pool2d')
+
         def _backward():
-            for i in range(out_h):
-                for j in range(out_w):
-                    g = out.grad[i,j]
-                    self.grad[i*stride:i*stride+kh, j*stride:j*stride+kw] += g / (kh*kw)
-        
+            for b in range(B):
+                for c in range(C):
+                    for i in range(out_h):
+                        for j in range(out_w):
+                            g = out.grad[b, c, i, j]
+                            self.grad[
+                                b, c,
+                                i*stride : i*stride + kh,
+                                j*stride : j*stride + kw
+                            ] += g / (kh * kw)
+
         out._backward = _backward
-        return out  
+        return out
+
     
     def flatten(self):
-        out = Tensor(self.data.reshape(-1), (self,), 'flatten')
+        B = self.data.shape[0]
+        out_data = self.data.reshape(B, -1)
+
+        out = Tensor(out_data, (self,), 'flatten')
 
         def _backward():
             self.grad += out.grad.reshape(self.data.shape)
 
         out._backward = _backward
         return out
+
     
     
-    @staticmethod   # come back to this...
-    def concat(tensors):
-        data = np.concatenate([t.data for t in tensors])
+    @staticmethod  # come back to this...
+    def concat(tensors, axis=0):
+        data = np.concatenate([t.data for t in tensors], axis=axis)
         out = Tensor(data, tuple(tensors), 'concat')
 
-        sizes = [t.data.size for t in tensors]
+        sizes = [t.data.shape[axis] for t in tensors]
 
         def _backward():
             idx = 0
             for t, sz in zip(tensors, sizes):
-                t.grad += out.grad[idx:idx+sz].reshape(t.data.shape)
+                slicer = [slice(None)] * out.grad.ndim
+                slicer[axis] = slice(idx, idx + sz)
+                t.grad += out.grad[tuple(slicer)]
                 idx += sz
 
         out._backward = _backward
         return out
+
     
     def softmax(self):
-        # numerical stability
-        exps = (self - self.data.max()).exp()
-        return exps / exps.sum()        
+        # subtract max per batch element for numerical stability
+        shifted = self.data - self.data.max(axis=1, keepdims=True)
+        exps = np.exp(shifted)
+
+        probs = exps / exps.sum(axis=1, keepdims=True)
+        out = Tensor(probs, (self,), 'softmax')
+
+        def _backward():
+            # see explanation below
+            for b in range(self.data.shape[0]):
+                y = out.data[b]      # softmax output (D,)
+                g = out.grad[b]      # upstream gradient (D,)
+
+                # Jacobian-vector product for softmax
+                self.grad[b] += y * (g - np.dot(g, y))
+
+        out._backward = _backward
+        return out
+     
     
     # allow slicing
     def __getitem__(self, idx):

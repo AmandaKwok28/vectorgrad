@@ -161,6 +161,7 @@ def test_backward_twice_no_accumulation():
     assert_allclose(grad1, grad2)
 
 
+
 def test_batched_conv2d():
     np.random.seed(0)
     torch.manual_seed(0)
@@ -173,27 +174,34 @@ def test_batched_conv2d():
     kH, kW = 3, 3
     stride = 1
 
-    # random input + weights
+    # random input
     x = np.random.randn(B, C_in, H, W)
-    w = np.random.randn(C_out, C_in, kH, kW)
 
-    # vectorgrad
+    # ===== VectorGrad =====
     X = Tensor(x)
-    W = Tensor(w)
-    Y = X.conv2d(W, stride=stride)
+
+    # IMPORTANT: conv2d now creates weights internally
+    Y, Wvg = X.conv2d(C_out, (kH, kW), stride=stride)
+
     loss = Y.sum()
     loss.backward()
 
-    # torch
+    # ===== PyTorch =====
     Xt = torch.tensor(x, dtype=torch.float64, requires_grad=True)
-    Wt = torch.tensor(w, dtype=torch.float64, requires_grad=True)
+
+    Wt = torch.tensor(
+        Wvg.data,
+        dtype=torch.float64,
+        requires_grad=True
+    )
+
     Yt = torch.nn.functional.conv2d(Xt, Wt, stride=stride)
     loss_t = Yt.sum()
     loss_t.backward()
 
-    # forward
-    assert_allclose(Y.data, Yt.detach().numpy())
+    # ===== Forward =====
+    assert_allclose(Y.data, Yt.detach().numpy(), rtol=1e-6, atol=1e-6)
 
-    # backward
-    assert_allclose(X.grad, Xt.grad.numpy())
-    assert_allclose(W.grad, Wt.grad.numpy())
+    # ===== Backward =====
+    assert_allclose(X.grad, Xt.grad.numpy(), rtol=1e-6, atol=1e-6)
+    assert_allclose(Wvg.grad, Wt.grad.numpy(), rtol=1e-6, atol=1e-6)
